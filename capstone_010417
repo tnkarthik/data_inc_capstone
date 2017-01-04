@@ -1,0 +1,113 @@
+
+import graphlab as gl
+
+
+boost_model = gl.load_model('boost_model_no_d')
+
+boost_model_2 = gl.load_model('boost_model_cwts')
+
+boost_model_imp_words = gl.load_model('boost_model_imp_words_no_d')
+
+
+LR_sentiment = gl.load_model('LR_sentiment')
+
+
+
+train_data = gl.load_sframe('train_data')
+test_data = gl.load_sframe('test_data')
+
+imp_words = boost_model.get_feature_importance()['index'][0:4000]
+train_data['imp_words'] = train_data['all_words_no_d'].dict_trim_by_keys(imp_words, exclude = False)
+
+boost_model_imp_words_no_d = gl.boosted_trees_classifier.create(train_data,
+                                                                target = 'overall',
+                                                                features = ['imp_words'],
+                                                                max_depth = 6,
+                                                                class_weights = 'auto',
+                                                                max_iterations = 10,
+                                                                verbose = True,
+                                                                validation_set = 'auto')
+train_data['imp_words_no_d_pred'] = boost_model_imp_words_no_d.predict(train_data)
+
+test_data['imp_words'] = test_data['all_words_no_d'].dict_trim_by_keys(imp_words, exclude = False)
+
+test_data['imp_words_no_d_pred'] = boost_model_imp_words_no_d.predict(test_data)
+
+con_mat_train = get_cm(gl.evaluation.confusion_matrix(train_data['overall'],train_data['imp_words_no_d_pred']))
+con_mat_test = get_cm(gl.evaluation.confusion_matrix(test_data['overall'],test_data['imp_words_no_d_pred']))
+
+
+
+train_data['all_words_no_d_pred'] = boost_model_2.predict(train_data)
+
+test_data['imp_words'] = test_data['all_words_no_d'].dict_trim_by_keys(imp_words, exclude = False)
+
+test_data['all_words_no_d_pred'] = boost_model_2.predict(test_data)
+
+con_mat_train = get_cm(gl.evaluation.confusion_matrix(train_data['overall'],train_data['all_words_no_d_pred']))
+con_mat_test = get_cm(gl.evaluation.confusion_matrix(test_data['overall'],test_data['all_words_no_d_pred']))
+
+test_data['imp_words_no_d'] = test_data['all_words_no_d'].dict_trim_by_keys(word_imp_no_d['index'][0:400], exclude = False)
+
+test_data['sentiment_pred'] = boost_model_imp_words_no_d_sentiment.predict(test_data)
+
+test_data_pos = test_data[test_data['sentiment_pred']==+1]
+test_data_neg = test_data[test_data['sentiment_pred']==-1]
+
+test_data_pos['overall_pred'] = boost_model_pos.predict(test_data_pos)
+test_data_neg['overall_pred'] = boost_model_neg.predict(test_data_neg)
+
+test_data = test_data_pos.append(test_data_neg)
+
+
+con_mat_first = get_cm(gl.evaluation.confusion_matrix(test_data['overall'],
+                                                      test_data['overall_first']))
+
+test_data_wrong = test_data[test_data['overall']!=test_data['overall_pred']]
+
+sample = test_data_wrong.sample(0.001)
+print sample.num_rows()
+sample.export_csv('test_data_wrong_sample.csv')
+
+
+con_mat_overall = gl.evaluation.confusion_matrix(test_data['overall'],test_data['overall_pred'])
+con_mat_overall = get_cm(con_mat_overall)
+con_mat_overall = con_mat_overall.to_numpy()
+
+print con_mat_test
+print con_mat_overall
+
+chosen = train_data['all_words_no_d'].item_length()>=50
+train_chosen = train_data[chosen]
+
+
+train_data['n_words'] = train_data['all_words_no_d'].apply(lambda x: len(x))
+
+a = train_data[train_data['n_words']>=50]
+
+boost_model_long_reviews = gl.boosted_trees_classifier.create(train_data,
+                                                                target = 'overall',
+                                                                features = ['imp_words'],
+                                                                max_depth = 6,
+                                                                class_weights = 'auto',
+                                                                max_iterations = 10,
+                                                                verbose = True,
+                                                                validation_set = 'auto')
+
+boost_model_cwts_2to4 = gl.load_model('boost_model_cwts_2to4')
+
+
+def make_3_cats(x):
+    if x!='1.0' and x!='5.0':
+        return '2-4'
+    else:
+        return x
+train_data['senti_3'] = train_data['overall'].apply(make_3_cats)
+
+LR_sentiment_3 = gl.logistic_classifier.create(train_data,
+                                                                target = 'senti_3',
+                                                                features = ['all_words_no_d'],
+                                                                class_weights = 'auto',
+                                                                max_iterations = 10,
+                                                                verbose = True,
+                                                                validation_set = 'auto')
